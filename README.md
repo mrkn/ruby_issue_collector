@@ -17,13 +17,24 @@ See http://chromedriver.chromium.org/downloads
 
 ## Usage
 
+### Data collection workflow
+
+1. Collect issue URIs
+2. Fetch detail data for each issue
+
+### Collect issue URIs
+
 Run `collect_ruby_issues` script.
 
 ```
 $ bin/collect_ruby_issues
 ```
 
-Then data will be saved into `data/raw` directory.
+Then data will be saved into `data/ruby-trunk-issues.tsv` directory.
+
+### Collect issue URIs
+
+TBD.
 
 ## Author
 
