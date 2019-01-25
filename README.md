@@ -36,6 +36,18 @@ Then data will be saved into `data/ruby-trunk-issues.tsv` directory.
 
 TBD.
 
+## Structure of data directory
+
+```
+data/
+  ruby-trunk-issues.tsv
+  raw/
+    issues.parquet
+    comments/
+      <issue_id>.parquet
+    :
+```
+
 ## Author
 
 Kenta Murata
