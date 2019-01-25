@@ -3,12 +3,48 @@
 require 'bundler'
 Bundler.setup
 
+require 'csv'
+require 'uri'
+
 require 'dotenv/load'
 require 'selenium-webdriver'
 
+DATA_DIR = File.expand_path('../../data', __FILE__)
+
 REDMINE_URL = 'https://bugs.ruby-lang.org'
 LOGIN_URL = File.join(REDMINE_URL, 'login')
-ISSUES_URL = File.join(REDMINE_URL, 'projects', 'ruby-trunk', 'issues') + '?f[]=&set_filter=1&sort=id&per_page=1000'
+ISSUES_URL = File.join(REDMINE_URL, 'projects', 'ruby-trunk', 'issues') + '?f[]=&set_filter=1&sort=id'
+PER_PAGE = 500
+START_PAGE = 1
+DATA_FILENAME = 'ruby-trunk-issues.tsv'
+
+def load_data(filename)
+  full_path = File.join(DATA_DIR, filename)
+  return nil unless File.file?(full_path)
+  {}.tap do |data|
+    CSV.foreach(full_path, col_sep: "\t") do |row|
+      id, fetched_at, uri = *row
+      data[id] = { id: id.to_i, fetched_at: fetched_at, uri: uri }
+    end
+  end
+end
+
+def save_data(data, filename)
+  full_path = File.join(DATA_DIR, filename)
+  CSV.open(full_path, "wb", col_sep: "\t") do |csv|
+    data.each do |id, record|
+      csv << record.values_at(:id, :fetched_at, :uri)
+    end
+  end
+end
+
+def put_issue_uri(data, issue_uri)
+  uri = URI.parse(issue_uri)
+  issue_id = File.basename(uri.path).to_i
+  unless data.has_key? issue_id
+    data[issue_id] = { id: issue_id, fetched_at: nil, uri: issue_uri }
+  end
+end
 
 options = Selenium::WebDriver::Chrome::Options.new
 options.add_argument '--headless'
@@ -17,10 +53,37 @@ options.add_argument '--window-size=1024,768'
 @driver = Selenium::WebDriver.for :chrome, options: options
 at_exit { @driver.quit }
 
-@driver.navigate.to LOGIN_URL
-@driver.find_element(:name, 'username').send_keys(ENV['REDMINE_USERNAME'])
-@driver.find_element(:name, 'password').send_keys(ENV['REDMINE_PASSWORD'])
-@driver.find_element(:name, 'login').submit
+begin
+  @driver.navigate.to LOGIN_URL
+  @driver.find_element(:name, 'username').send_keys(ENV['REDMINE_USERNAME'])
+  @driver.find_element(:name, 'password').send_keys(ENV['REDMINE_PASSWORD'])
+  @driver.find_element(:name, 'login').submit
 
-@driver.navigate.to ISSUES_URL
-@driver.save_screenshot("screenshot.png")
+  data = load_data(DATA_FILENAME) || {}
+
+  page = START_PAGE
+  @driver.navigate.to "#{ISSUES_URL}&per_page=#{PER_PAGE}&page=#{page}"
+  loop do
+    puts "Page: #{page}"
+
+    issues = @driver.find_elements(:css, "table.issues tbody tr")
+    issues.each do |issue|
+      uri = issue.find_element(:tag_name, 'a')['href']
+      put_issue_uri(data, uri)
+    end
+
+    begin
+      next_url = @driver.find_element(:css, "span.pagination li.next a")['href']
+      @driver.navigate.to next_url
+      page = next_url[/page=(\d+)/, 1].to_i
+      sleep [1, 2, 3].sample
+    rescue Selenium::WebDriver::Error::NoSuchElementError
+      break
+    end
+  end
+
+  save_data(data, DATA_FILENAME)
+rescue Selenium::WebDriver::Error::NoSuchElementError
+  @driver.save_screenshot("screenshot.png")
+  raise
+end
